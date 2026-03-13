@@ -5,7 +5,7 @@ Interactive CLI tool for copying MongoDB databases.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/lnmunhoz/learnthai-web/main/tools/mongocop/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/lnmunhoz/mongocop/main/install.sh | sh
 ```
 
 Requires Node.js 18+.
@@ -25,7 +25,6 @@ Features:
 ## Development
 
 ```sh
-cd tools/mongocop
 pnpm install
 pnpm start
 ```

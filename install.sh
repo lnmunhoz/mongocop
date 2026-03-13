@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="lnmunhoz/learnthai-web"
+REPO="lnmunhoz/mongocop"
 BRANCH="main"
 INSTALL_DIR="$HOME/.mongocop-cli"
 
@@ -22,10 +22,10 @@ fi
 rm -rf "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
-# Download and extract only tools/mongocop/ from the repo tarball
+# Download and extract repo tarball
 TARBALL_URL="https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz"
 echo "Downloading from $TARBALL_URL..."
-curl -fsSL "$TARBALL_URL" | tar -xz --strip-components=2 -C "$INSTALL_DIR" "learnthai-web-$BRANCH/tools/mongocop"
+curl -fsSL "$TARBALL_URL" | tar -xz --strip-components=1 -C "$INSTALL_DIR" "mongocop-$BRANCH"
 
 # Install dependencies and build
 cd "$INSTALL_DIR"
