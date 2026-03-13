@@ -1,0 +1,24 @@
+{
+  "name": "mongocop",
+  "version": "0.1.0",
+  "description": "Interactive CLI tool for copying MongoDB databases",
+  "type": "module",
+  "bin": {
+    "mongocop": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc && node scripts/postbuild.mjs"
+  },
+  "dependencies": {
+    "mongodb": "^7.1.0",
+    "@clack/prompts": "^0.9"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0"
+  }
+}
