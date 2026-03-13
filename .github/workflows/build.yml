@@ -34,7 +34,7 @@ jobs:
           git reset
 
           # Stage only what's needed at runtime
-          git add dist/ package.json pnpm-lock.yaml
+          git add -f dist/ package.json pnpm-lock.yaml
           git commit -m "Build from ${GITHUB_SHA::7}"
 
           # Force-push to the release branch
