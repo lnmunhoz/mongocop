@@ -2,7 +2,7 @@
 set -e
 
 REPO="lnmunhoz/mongocop"
-BRANCH="main"
+BRANCH="release"
 INSTALL_DIR="$HOME/.mongocop-cli"
 
 echo "Installing mongocop..."
@@ -27,11 +27,9 @@ TARBALL_URL="https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz"
 echo "Downloading from $TARBALL_URL..."
 curl -fsSL "$TARBALL_URL" | tar -xz --strip-components=1 -C "$INSTALL_DIR" "mongocop-$BRANCH"
 
-# Install dependencies and build
+# Install production dependencies only (dist is pre-built)
 cd "$INSTALL_DIR"
-npm install --ignore-scripts
-npm run build
-npm prune --production
+npm install --production --ignore-scripts
 
 # Determine bin directory
 BIN_DIR="/usr/local/bin"

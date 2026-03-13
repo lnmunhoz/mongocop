@@ -1,0 +1,41 @@
+name: Build and publish
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
+      - name: Push dist to release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create an orphan branch with only the files needed to run
+          git checkout --orphan release-tmp
+          git reset
+
+          # Stage only what's needed at runtime
+          git add dist/ package.json pnpm-lock.yaml
+          git commit -m "Build from ${GITHUB_SHA::7}"
+
+          # Force-push to the release branch
+          git push origin HEAD:release --force

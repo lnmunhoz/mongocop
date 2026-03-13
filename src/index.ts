@@ -12,6 +12,10 @@ import {
 } from "./config.js";
 import { formatBytes, isValidDbName } from "./utils.js";
 
+function exit(code: number): never {
+  process.exit(code);
+}
+
 async function manageConnections(hosts: SavedHost[]): Promise<void> {
   // Pick which connection to manage
   const host = await p.select({
@@ -28,9 +32,9 @@ async function manageConnections(hosts: SavedHost[]): Promise<void> {
   const action = await p.select({
     message: `"${host.name}"`,
     options: [
-      { value: "rename", label: "Rename" },
-      { value: "delete", label: "Delete" },
-      { value: "back", label: "Back" },
+      { value: "rename" as const, label: "Rename" },
+      { value: "delete" as const, label: "Delete" },
+      { value: "back" as const, label: "Back" },
     ],
   });
 
@@ -45,8 +49,8 @@ async function manageConnections(hosts: SavedHost[]): Promise<void> {
 
     if (p.isCancel(newName)) return;
 
-    await renameHost(host.name, newName);
-    p.log.success(`Renamed "${host.name}" → "${newName}"`);
+    await renameHost(host.name, newName as string);
+    p.log.success(`Renamed "${host.name}" → "${newName as string}"`);
   }
 
   if (action === "delete") {
@@ -95,7 +99,7 @@ async function pickConnectionString(
 
       if (p.isCancel(choice)) {
         p.cancel("Cancelled.");
-        process.exit(0);
+        exit(0);
       }
 
       if (choice === "__manage__") {
@@ -104,7 +108,7 @@ async function pickConnectionString(
       }
 
       if (choice !== "__new__") {
-        return choice;
+        return choice as string;
       }
     }
 
@@ -117,7 +121,7 @@ async function pickConnectionString(
 
     if (p.isCancel(connectionString)) {
       p.cancel("Cancelled.");
-      process.exit(0);
+      exit(0);
     }
 
     // Offer to save it
@@ -127,7 +131,7 @@ async function pickConnectionString(
 
     if (p.isCancel(shouldSave)) {
       p.cancel("Cancelled.");
-      process.exit(0);
+      exit(0);
     }
 
     if (shouldSave) {
@@ -139,14 +143,14 @@ async function pickConnectionString(
 
       if (p.isCancel(name)) {
         p.cancel("Cancelled.");
-        process.exit(0);
+        exit(0);
       }
 
-      await addHost({ name, connectionString });
-      p.log.success(`Saved as "${name}" in ~/.mongocop/config.json`);
+      await addHost({ name: name as string, connectionString: connectionString as string });
+      p.log.success(`Saved as "${name as string}" in ~/.mongocop/config.json`);
     }
 
-    return connectionString;
+    return connectionString as string;
   }
 }
 
@@ -159,7 +163,7 @@ async function main() {
   const sourceSpinner = p.spinner();
   sourceSpinner.start("Connecting to source...");
 
-  let sourceClient: MongoClient;
+  let sourceClient!: MongoClient;
   try {
     sourceClient = await MongoClient.connect(sourceConnectionString);
     sourceSpinner.stop("Connected to source.");
@@ -168,7 +172,7 @@ async function main() {
     p.log.error(
       `Could not connect: ${err instanceof Error ? err.message : err}`
     );
-    process.exit(1);
+    exit(1);
   }
 
   let targetClient: MongoClient = sourceClient;
@@ -178,7 +182,7 @@ async function main() {
 
     if (databases.length === 0) {
       p.log.warn("No user databases found.");
-      process.exit(0);
+      exit(0);
     }
 
     const sourceDb = await p.select({
@@ -192,21 +196,23 @@ async function main() {
 
     if (p.isCancel(sourceDb)) {
       p.cancel("Cancelled.");
-      process.exit(0);
+      exit(0);
     }
+
+    const sourceDbName = sourceDb as string;
 
     // --- Same or different host? ---
     const copyTarget = await p.select({
       message: "Copy to same host or different host?",
       options: [
-        { value: "same", label: "Same host" },
-        { value: "different", label: "Different host" },
+        { value: "same" as const, label: "Same host" },
+        { value: "different" as const, label: "Different host" },
       ],
     });
 
     if (p.isCancel(copyTarget)) {
       p.cancel("Cancelled.");
-      process.exit(0);
+      exit(0);
     }
 
     if (copyTarget === "different") {
@@ -224,53 +230,55 @@ async function main() {
         p.log.error(
           `Could not connect: ${err instanceof Error ? err.message : err}`
         );
-        process.exit(1);
+        exit(1);
       }
     }
 
     const targetDb = await p.text({
       message: "Target database name",
-      placeholder: `${sourceDb}-copy`,
+      placeholder: `${sourceDbName}-copy`,
       validate: isValidDbName,
     });
 
     if (p.isCancel(targetDb)) {
       p.cancel("Cancelled.");
-      process.exit(0);
+      exit(0);
     }
+
+    const targetDbName = targetDb as string;
 
     // Check if target exists
     const targetDatabases = await listUserDatabases(targetClient);
     const existingDbs = targetDatabases.map((db) => db.name);
-    if (existingDbs.includes(targetDb)) {
+    if (existingDbs.includes(targetDbName)) {
       const overwrite = await p.confirm({
-        message: `Database "${targetDb}" already exists on target. Drop it and overwrite?`,
+        message: `Database "${targetDbName}" already exists on target. Drop it and overwrite?`,
         initialValue: false,
       });
 
       if (p.isCancel(overwrite) || !overwrite) {
         p.cancel("Cancelled.");
-        process.exit(0);
+        exit(0);
       }
 
       const dropSpinner = p.spinner();
-      dropSpinner.start(`Dropping "${targetDb}"...`);
-      await targetClient.db(targetDb).dropDatabase();
-      dropSpinner.stop(`Dropped "${targetDb}".`);
+      dropSpinner.start(`Dropping "${targetDbName}"...`);
+      await targetClient.db(targetDbName).dropDatabase();
+      dropSpinner.stop(`Dropped "${targetDbName}".`);
     }
 
     // Get collection count for confirmation
     const sourceCollections = (
-      await sourceClient.db(sourceDb).listCollections().toArray()
+      await sourceClient.db(sourceDbName).listCollections().toArray()
     ).filter((c) => c.type !== "view");
 
     const proceed = await p.confirm({
-      message: `Copy ${sourceCollections.length} collections from "${sourceDb}" to "${targetDb}"?`,
+      message: `Copy ${sourceCollections.length} collections from "${sourceDbName}" to "${targetDbName}"?`,
     });
 
     if (p.isCancel(proceed) || !proceed) {
       p.cancel("Cancelled.");
-      process.exit(0);
+      exit(0);
     }
 
     const copySpinner = p.spinner();
@@ -279,8 +287,8 @@ async function main() {
     const summary = await copyDatabase(
       sourceClient,
       targetClient,
-      sourceDb,
-      targetDb,
+      sourceDbName,
+      targetDbName,
       ({ collection, index, total, docCount }) => {
         copySpinner.message(
           `Copied ${collection} (${docCount} docs) [${index}/${total}]`
@@ -305,5 +313,5 @@ async function main() {
 
 main().catch((err) => {
   console.error(err);
-  process.exit(1);
+  exit(1);
 });
