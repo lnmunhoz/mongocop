@@ -12,6 +12,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "build": "tsc && node scripts/postbuild.mjs",
+    "prerelease": "node scripts/prerelease.mjs",
     "release": "release-it"
   },
   "dependencies": {
