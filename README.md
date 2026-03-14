@@ -17,10 +17,14 @@ mongocop
 ```
 
 Features:
-- Save and reuse connection strings
-- Copy databases on the same host or across different hosts
+- Copy entire databases or selected collections
+- Copy on the same host or across different hosts
+- Pick an existing target database or create a new one
+- Save, rename, and delete connection strings
+- Supports `MONGODB_URL` environment variable
+- Copies indexes along with documents
+- Overwrite confirmation before dropping existing data
 - Collection-level progress indicator
-- Interactive prompts for source/target selection
 
 ## Development
 
@@ -39,5 +43,5 @@ node dist/index.js
 ## Uninstall
 
 ```sh
-rm -rf ~/.mongocop-cli && rm /usr/local/bin/mongocop
+rm -rf ~/.mongocop && rm /usr/local/bin/mongocop
 ```
