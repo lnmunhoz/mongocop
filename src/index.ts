@@ -1,7 +1,11 @@
 #!/usr/bin/env tsx
 import * as p from "@clack/prompts";
 import { MongoClient } from "mongodb";
-import { copyDatabase, listUserDatabases } from "./copy-database.js";
+import {
+  copyCollection,
+  copyDatabase,
+  listUserDatabases,
+} from "./copy-database.js";
 import {
   addHost,
   loadConfig,
@@ -201,6 +205,49 @@ async function main() {
 
     const sourceDbName = sourceDb as string;
 
+    // --- Entire database or selected collections? ---
+    const copyMode = await p.select({
+      message: "What do you want to copy?",
+      options: [
+        { value: "database" as const, label: "Entire database" },
+        { value: "collections" as const, label: "Selected collections" },
+      ],
+    });
+
+    if (p.isCancel(copyMode)) {
+      p.cancel("Cancelled.");
+      exit(0);
+    }
+
+    let selectedCollections: string[] = [];
+
+    if (copyMode === "collections") {
+      const collections = (
+        await sourceClient.db(sourceDbName).listCollections().toArray()
+      ).filter((c) => c.type !== "view");
+
+      if (collections.length === 0) {
+        p.log.warn("No collections found.");
+        exit(0);
+      }
+
+      const collChoices = await p.multiselect({
+        message: "Select collections",
+        options: collections.map((c) => ({
+          value: c.name,
+          label: c.name,
+        })),
+        required: true,
+      });
+
+      if (p.isCancel(collChoices)) {
+        p.cancel("Cancelled.");
+        exit(0);
+      }
+
+      selectedCollections = collChoices as string[];
+    }
+
     // --- Same or different host? ---
     const copyTarget = await p.select({
       message: "Copy to same host or different host?",
@@ -234,73 +281,185 @@ async function main() {
       }
     }
 
-    const targetDb = await p.text({
-      message: "Target database name",
-      placeholder: `${sourceDbName}-copy`,
-      validate: isValidDbName,
-    });
-
-    if (p.isCancel(targetDb)) {
-      p.cancel("Cancelled.");
-      exit(0);
-    }
-
-    const targetDbName = targetDb as string;
-
-    // Check if target exists
+    // --- Pick or create target database ---
     const targetDatabases = await listUserDatabases(targetClient);
-    const existingDbs = targetDatabases.map((db) => db.name);
-    if (existingDbs.includes(targetDbName)) {
-      const overwrite = await p.confirm({
-        message: `Database "${targetDbName}" already exists on target. Drop it and overwrite?`,
-        initialValue: false,
+
+    let targetDbName: string;
+
+    if (targetDatabases.length > 0) {
+      const targetDbOptions: { value: string; label: string; hint?: string }[] =
+        targetDatabases.map((db) => ({
+          value: db.name,
+          label: db.name,
+          hint: formatBytes(db.sizeOnDisk),
+        }));
+
+      targetDbOptions.push({
+        value: "__new__",
+        label: "Create new database",
       });
 
-      if (p.isCancel(overwrite) || !overwrite) {
+      const targetDbChoice = await p.select({
+        message: "Target database",
+        options: targetDbOptions,
+      });
+
+      if (p.isCancel(targetDbChoice)) {
         p.cancel("Cancelled.");
         exit(0);
       }
 
-      const dropSpinner = p.spinner();
-      dropSpinner.start(`Dropping "${targetDbName}"...`);
-      await targetClient.db(targetDbName).dropDatabase();
-      dropSpinner.stop(`Dropped "${targetDbName}".`);
-    }
+      if (targetDbChoice === "__new__") {
+        const newDbName = await p.text({
+          message: "New database name",
+          placeholder: `${sourceDbName}-copy`,
+          validate: isValidDbName,
+        });
 
-    // Get collection count for confirmation
-    const sourceCollections = (
-      await sourceClient.db(sourceDbName).listCollections().toArray()
-    ).filter((c) => c.type !== "view");
+        if (p.isCancel(newDbName)) {
+          p.cancel("Cancelled.");
+          exit(0);
+        }
 
-    const proceed = await p.confirm({
-      message: `Copy ${sourceCollections.length} collections from "${sourceDbName}" to "${targetDbName}"?`,
-    });
-
-    if (p.isCancel(proceed) || !proceed) {
-      p.cancel("Cancelled.");
-      exit(0);
-    }
-
-    const copySpinner = p.spinner();
-    copySpinner.start("Starting copy...");
-
-    const summary = await copyDatabase(
-      sourceClient,
-      targetClient,
-      sourceDbName,
-      targetDbName,
-      ({ collection, index, total, docCount }) => {
-        copySpinner.message(
-          `Copied ${collection} (${docCount} docs) [${index}/${total}]`
-        );
+        targetDbName = newDbName as string;
+      } else {
+        targetDbName = targetDbChoice as string;
       }
-    );
+    } else {
+      const newDbName = await p.text({
+        message: "Target database name",
+        placeholder: `${sourceDbName}-copy`,
+        validate: isValidDbName,
+      });
 
-    copySpinner.stop("Copy complete.");
+      if (p.isCancel(newDbName)) {
+        p.cancel("Cancelled.");
+        exit(0);
+      }
 
-    p.log.success(
-      `Copied ${summary.collections} collections, ${summary.documents.toLocaleString()} documents.`
-    );
+      targetDbName = newDbName as string;
+    }
+
+    if (selectedCollections.length > 0) {
+      // --- Selected collections: check for existing ones in target ---
+      const existingTargetColls = (
+        await targetClient.db(targetDbName).listCollections().toArray()
+      ).map((c) => c.name);
+
+      const conflicting = selectedCollections.filter((name) =>
+        existingTargetColls.includes(name)
+      );
+
+      if (conflicting.length > 0) {
+        const overwrite = await p.confirm({
+          message: `${conflicting.length} collection(s) already exist in "${targetDbName}" (${conflicting.join(", ")}). Drop and overwrite?`,
+          initialValue: false,
+        });
+
+        if (p.isCancel(overwrite) || !overwrite) {
+          p.cancel("Cancelled.");
+          exit(0);
+        }
+
+        const dropSpinner = p.spinner();
+        dropSpinner.start("Dropping existing collections...");
+        for (const name of conflicting) {
+          await targetClient.db(targetDbName).collection(name).drop();
+        }
+        dropSpinner.stop(`Dropped ${conflicting.length} collection(s).`);
+      }
+
+      const proceed = await p.confirm({
+        message: `Copy ${selectedCollections.length} collection(s) from "${sourceDbName}" to "${targetDbName}"?`,
+      });
+
+      if (p.isCancel(proceed) || !proceed) {
+        p.cancel("Cancelled.");
+        exit(0);
+      }
+
+      const copySpinner = p.spinner();
+      copySpinner.start("Starting copy...");
+
+      let totalDocuments = 0;
+
+      for (let i = 0; i < selectedCollections.length; i++) {
+        const collName = selectedCollections[i];
+        const result = await copyCollection(
+          sourceClient,
+          targetClient,
+          sourceDbName,
+          targetDbName,
+          collName,
+          ({ docCount }) => {
+            copySpinner.message(
+              `Copied ${collName} (${docCount} docs) [${i + 1}/${selectedCollections.length}]`
+            );
+          }
+        );
+        totalDocuments += result.documents;
+      }
+
+      copySpinner.stop("Copy complete.");
+
+      p.log.success(
+        `Copied ${selectedCollections.length} collection(s), ${totalDocuments.toLocaleString()} documents.`
+      );
+    } else {
+      // --- Entire database: check if target DB exists ---
+      const existingDbs = targetDatabases.map((db) => db.name);
+      if (existingDbs.includes(targetDbName)) {
+        const overwrite = await p.confirm({
+          message: `Database "${targetDbName}" already exists on target. Drop it and overwrite?`,
+          initialValue: false,
+        });
+
+        if (p.isCancel(overwrite) || !overwrite) {
+          p.cancel("Cancelled.");
+          exit(0);
+        }
+
+        const dropSpinner = p.spinner();
+        dropSpinner.start(`Dropping "${targetDbName}"...`);
+        await targetClient.db(targetDbName).dropDatabase();
+        dropSpinner.stop(`Dropped "${targetDbName}".`);
+      }
+
+      // Get collection count for confirmation
+      const sourceCollections = (
+        await sourceClient.db(sourceDbName).listCollections().toArray()
+      ).filter((c) => c.type !== "view");
+
+      const proceed = await p.confirm({
+        message: `Copy ${sourceCollections.length} collections from "${sourceDbName}" to "${targetDbName}"?`,
+      });
+
+      if (p.isCancel(proceed) || !proceed) {
+        p.cancel("Cancelled.");
+        exit(0);
+      }
+
+      const copySpinner = p.spinner();
+      copySpinner.start("Starting copy...");
+
+      const summary = await copyDatabase(
+        sourceClient,
+        targetClient,
+        sourceDbName,
+        targetDbName,
+        ({ collection, index, total, docCount }) => {
+          copySpinner.message(
+            `Copied ${collection} (${docCount} docs) [${index}/${total}]`
+          );
+        }
+      );
+
+      copySpinner.stop("Copy complete.");
+
+      p.log.success(
+        `Copied ${summary.collections} collections, ${summary.documents.toLocaleString()} documents.`
+      );
+    }
   } finally {
     await sourceClient.close();
     if (targetClient !== sourceClient) {
