@@ -8,16 +8,135 @@ import {
 } from "./copy-database.js";
 import {
   addHost,
+  isCredentialHost,
+  isLegacyHost,
   loadConfig,
   maskConnectionString,
   removeHost,
   renameHost,
   type SavedHost,
-} from "./config.js";
+} from "./lib/config.js";
+import {
+  CredentialStoreError,
+  createCredentialRef,
+  getCredentialStore,
+  getDefaultCredentialStore,
+  type CredentialStoreName,
+} from "./lib/credentials/index.js";
 import { formatBytes, isValidDbName } from "./utils.js";
 
 function exit(code: number): never {
   process.exit(code);
+}
+
+function describeStore(store: CredentialStoreName): string {
+  if (store === "keychain") {
+    return "macOS Keychain";
+  }
+  return store;
+}
+
+function hostHint(host: SavedHost): string | undefined {
+  if (isCredentialHost(host)) {
+    return `Stored in ${describeStore(host.credential.store)}`;
+  }
+  if (typeof host.connectionString === "string") {
+    return maskConnectionString(host.connectionString);
+  }
+  return undefined;
+}
+
+function toErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof CredentialStoreError) return err.message;
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
+
+async function resolveHostConnectionString(host: SavedHost): Promise<string> {
+  if (isCredentialHost(host)) {
+    const store = getCredentialStore(host.credential.store);
+    const value = await store.get(host.credential);
+    if (!value) {
+      throw new CredentialStoreError(
+        "backend_error",
+        `Saved credential not found in ${describeStore(host.credential.store)}.`
+      );
+    }
+    return value;
+  }
+
+  if (typeof host.connectionString === "string") {
+    return host.connectionString;
+  }
+
+  throw new CredentialStoreError(
+    "backend_error",
+    `Connection "${host.name}" has no stored credential.`
+  );
+}
+
+async function migrateLegacyHosts(hosts: SavedHost[]): Promise<void> {
+  const legacyHosts = hosts.filter(isLegacyHost);
+  if (legacyHosts.length === 0) return;
+
+  p.log.warn(
+    `Found ${legacyHosts.length} legacy connection(s) stored in plaintext config.`
+  );
+
+  const shouldMigrate = await p.confirm({
+    message: "Migrate legacy connections to macOS Keychain now?",
+    initialValue: true,
+  });
+
+  if (p.isCancel(shouldMigrate)) {
+    p.cancel("Cancelled.");
+    exit(0);
+  }
+
+  if (!shouldMigrate) {
+    p.log.warn("Legacy plaintext connections were kept for now.");
+    return;
+  }
+
+  let migratedCount = 0;
+  for (const host of legacyHosts) {
+    const ref = createCredentialRef();
+    const store = getCredentialStore(ref.store);
+
+    try {
+      await store.set(ref, host.connectionString);
+      try {
+        await addHost({
+          name: host.name,
+          kind: "credential",
+          credential: ref,
+        });
+      } catch (cause) {
+        await store.delete(ref).catch(() => undefined);
+        throw cause;
+      }
+      migratedCount += 1;
+    } catch (err) {
+      p.log.error(
+        `Could not migrate "${host.name}": ${toErrorMessage(
+          err,
+          "Unknown keychain error."
+        )}`
+      );
+    }
+  }
+
+  if (migratedCount > 0) {
+    p.log.success(
+      `Migrated ${migratedCount}/${legacyHosts.length} connection(s) to macOS Keychain.`
+    );
+  }
+
+  if (migratedCount < legacyHosts.length) {
+    p.log.warn(
+      `${legacyHosts.length - migratedCount} connection(s) remain in legacy plaintext format.`
+    );
+  }
 }
 
 async function manageConnections(hosts: SavedHost[]): Promise<void> {
@@ -25,16 +144,18 @@ async function manageConnections(hosts: SavedHost[]): Promise<void> {
   const host = await p.select({
     message: "Which connection?",
     options: hosts.map((h) => ({
-      value: h,
+      value: h.name,
       label: h.name,
-      hint: maskConnectionString(h.connectionString),
+      hint: hostHint(h),
     })),
   });
 
   if (p.isCancel(host)) return;
+  const selectedHost = hosts.find((h) => h.name === host);
+  if (!selectedHost) return;
 
   const action = await p.select({
-    message: `"${host.name}"`,
+    message: `"${selectedHost.name}"`,
     options: [
       { value: "rename" as const, label: "Rename" },
       { value: "delete" as const, label: "Delete" },
@@ -47,26 +168,40 @@ async function manageConnections(hosts: SavedHost[]): Promise<void> {
   if (action === "rename") {
     const newName = await p.text({
       message: "New name",
-      initialValue: host.name,
+      initialValue: selectedHost.name,
       validate: (v) => (!v ? "Name is required" : undefined),
     });
 
     if (p.isCancel(newName)) return;
 
-    await renameHost(host.name, newName as string);
-    p.log.success(`Renamed "${host.name}" → "${newName as string}"`);
+    await renameHost(selectedHost.name, newName as string);
+    p.log.success(`Renamed "${selectedHost.name}" → "${newName as string}"`);
   }
 
   if (action === "delete") {
     const confirm = await p.confirm({
-      message: `Delete "${host.name}"?`,
+      message: `Delete "${selectedHost.name}"?`,
       initialValue: false,
     });
 
     if (p.isCancel(confirm) || !confirm) return;
 
-    await removeHost(host.name);
-    p.log.success(`Deleted "${host.name}"`);
+    if (isCredentialHost(selectedHost)) {
+      const store = getCredentialStore(selectedHost.credential.store);
+      try {
+        await store.delete(selectedHost.credential);
+      } catch (err) {
+        p.log.warn(
+          `Removed config entry but could not delete keychain item: ${toErrorMessage(
+            err,
+            "Unknown keychain error."
+          )}`
+        );
+      }
+    }
+
+    await removeHost(selectedHost.name);
+    p.log.success(`Deleted "${selectedHost.name}"`);
   }
 }
 
@@ -81,20 +216,22 @@ async function pickConnectionString(
   }
 
   // Loop so user can manage connections and come back to selection
+  let hasCheckedLegacyMigration = false;
   while (true) {
     const config = await loadConfig();
-    const selectableHosts = excludeConnectionString
-      ? config.hosts.filter(
-          (host) => host.connectionString !== excludeConnectionString
-        )
-      : config.hosts;
+    if (!hasCheckedLegacyMigration) {
+      await migrateLegacyHosts(config.hosts);
+      hasCheckedLegacyMigration = true;
+    }
+    const refreshedConfig = await loadConfig();
+    const selectableHosts = refreshedConfig.hosts;
 
-    if (config.hosts.length > 0) {
+    if (selectableHosts.length > 0) {
       const options: { value: string; label: string; hint?: string }[] =
         selectableHosts.map((host) => ({
-          value: host.connectionString,
+          value: host.name,
           label: host.name,
-          hint: maskConnectionString(host.connectionString),
+          hint: hostHint(host),
         }));
 
       options.push(
@@ -113,12 +250,30 @@ async function pickConnectionString(
       }
 
       if (choice === "__manage__") {
-        await manageConnections(config.hosts);
+        await manageConnections(selectableHosts);
         continue;
       }
 
       if (choice !== "__new__") {
-        return choice as string;
+        const selectedHost = selectableHosts.find((host) => host.name === choice);
+        if (!selectedHost) continue;
+
+        try {
+          const resolved = await resolveHostConnectionString(selectedHost);
+          if (excludeConnectionString && resolved === excludeConnectionString) {
+            p.log.warn("Please choose a different host than the source.");
+            continue;
+          }
+          return resolved;
+        } catch (err) {
+          p.log.error(
+            `Could not load "${selectedHost.name}": ${toErrorMessage(
+              err,
+              "Unknown credential-store error."
+            )}`
+          );
+          continue;
+        }
       }
     }
 
@@ -156,8 +311,39 @@ async function pickConnectionString(
         exit(0);
       }
 
-      await addHost({ name: name as string, connectionString: connectionString as string });
-      p.log.success(`Saved as "${name as string}" in ~/.mongocop/config.json`);
+      const credentialRef = createCredentialRef();
+      const defaultStore = getDefaultCredentialStore();
+      try {
+        await defaultStore.set(credentialRef, connectionString as string);
+        try {
+          await addHost({
+            name: name as string,
+            kind: "credential",
+            credential: credentialRef,
+          });
+        } catch (cause) {
+          await defaultStore.delete(credentialRef).catch(() => undefined);
+          throw cause;
+        }
+        p.log.success(
+          `Saved as "${name as string}" in ${describeStore(defaultStore.name)}.`
+        );
+      } catch (err) {
+        p.log.error(
+          `Could not save "${name as string}": ${toErrorMessage(
+            err,
+            "Unknown credential-store error."
+          )}`
+        );
+      }
+    }
+
+    if (
+      excludeConnectionString &&
+      connectionString === excludeConnectionString
+    ) {
+      p.log.warn("Please enter a different host than the source.");
+      continue;
     }
 
     return connectionString as string;

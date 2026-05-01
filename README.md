@@ -20,8 +20,10 @@ Features:
 - Copy entire databases or selected collections
 - Copy on the same host or across different hosts
 - Pick an existing target database or create a new one
-- Save, rename, and delete connection strings
-- Supports `MONGODB_URL` environment variable
+- Save, rename, and delete named connections
+- Stores saved connection secrets in macOS Keychain
+- Keeps only non-secret connection metadata in `~/.mongocop/config.json`
+- Supports `MONGODB_URL` environment variable (takes priority over saved hosts)
 - Copies indexes along with documents
 - Overwrite confirmation before dropping existing data
 - Collection-level progress indicator
@@ -45,3 +47,6 @@ node dist/index.js
 ```sh
 rm -rf ~/.mongocop && rm /usr/local/bin/mongocop
 ```
+
+To remove saved secrets from Keychain, open Keychain Access and delete items
+created by `mongocop`.
