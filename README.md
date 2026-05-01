@@ -1,6 +1,10 @@
-# mongocop
+<p align="center">
+  <img src="./assets/icon-1777616822637-3.png" alt="mongocop logo" width="160">
+</p>
 
-Interactive CLI tool for copying MongoDB databases.
+<h1 align="center">mongocop</h1>
+
+<p align="center">Interactive CLI tool for copying MongoDB databases.</p>
 
 ## Install
 
