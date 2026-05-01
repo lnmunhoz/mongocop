@@ -1,5 +1,8 @@
 #!/usr/bin/env tsx
 import * as p from "@clack/prompts";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { MongoClient } from "mongodb";
 import {
   copyCollection,
@@ -27,6 +30,23 @@ import { formatBytes, isValidDbName } from "./utils.js";
 
 function exit(code: number): never {
   process.exit(code);
+}
+
+function readPackageVersion(): string {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const packageJsonPath = resolve(currentDir, "../package.json");
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+    version?: string;
+  };
+
+  return packageJson.version ?? "unknown";
+}
+
+function printVersionIfRequested(args = process.argv.slice(2)): void {
+  if (args.includes("--version") || args.includes("-v")) {
+    console.log(`mongocop ${readPackageVersion()}`);
+    exit(0);
+  }
 }
 
 function describeStore(store: CredentialStoreName): string {
@@ -666,6 +686,8 @@ async function main() {
 
   p.outro("Done!");
 }
+
+printVersionIfRequested();
 
 main().catch((err) => {
   console.error(err);

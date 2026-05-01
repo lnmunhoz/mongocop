@@ -16,6 +16,12 @@ Requires Node.js 18+.
 mongocop
 ```
 
+Check the installed version:
+
+```sh
+mongocop --version
+```
+
 Features:
 - Copy entire databases or selected collections
 - Copy on the same host or across different hosts
