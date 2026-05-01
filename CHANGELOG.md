@@ -1,5 +1,12 @@
 # Changelog
 
+# [0.4.0](https://github.com/lnmunhoz/mongocop/compare/v0.3.0...v0.4.0) (2026-05-01)
+
+
+### Features
+
+* add version printing functionality to the CLI ([56bad43](https://github.com/lnmunhoz/mongocop/commit/56bad43056974ccfe1fdfec22f7679e8042ce204))
+
 # [0.3.0](https://github.com/lnmunhoz/mongocop/compare/v0.2.0...v0.3.0) (2026-05-01)
 
 
