@@ -1,5 +1,15 @@
 # Changelog
 
+# [0.3.0](https://github.com/lnmunhoz/mongocop/compare/v0.2.0...v0.3.0) (2026-05-01)
+
+
+### Features
+
+* add prerelease script that uses Claude to update README ([7b97e3e](https://github.com/lnmunhoz/mongocop/commit/7b97e3e258c6d91d29766b858199697521667574))
+* enhance connection string selection and database options ([d686a25](https://github.com/lnmunhoz/mongocop/commit/d686a253a24b4b33fbe0d0e11e0f8a2a44168108))
+* enhance README with new features and installation instructions ([82caa6e](https://github.com/lnmunhoz/mongocop/commit/82caa6ebb79004e4de5a422c6483aefcee7fca8d))
+* integrate macOS Keychain for secure connection management ([8ab0860](https://github.com/lnmunhoz/mongocop/commit/8ab0860e48d3935bfd66f473c862f98bf356c63a))
+
 # 0.2.0 (2026-03-14)
 
 
