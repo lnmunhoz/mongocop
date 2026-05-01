@@ -71,7 +71,8 @@ async function manageConnections(hosts: SavedHost[]): Promise<void> {
 }
 
 async function pickConnectionString(
-  message = "Select a host"
+  message = "Select a host",
+  excludeConnectionString?: string
 ): Promise<string> {
   // Env var takes priority — skip host selection entirely
   if (process.env.MONGODB_URL) {
@@ -82,10 +83,15 @@ async function pickConnectionString(
   // Loop so user can manage connections and come back to selection
   while (true) {
     const config = await loadConfig();
+    const selectableHosts = excludeConnectionString
+      ? config.hosts.filter(
+          (host) => host.connectionString !== excludeConnectionString
+        )
+      : config.hosts;
 
     if (config.hosts.length > 0) {
       const options: { value: string; label: string; hint?: string }[] =
-        config.hosts.map((host) => ({
+        selectableHosts.map((host) => ({
           value: host.connectionString,
           label: host.name,
           hint: maskConnectionString(host.connectionString),
@@ -252,8 +258,8 @@ async function main() {
     const copyTarget = await p.select({
       message: "Copy to same host or different host?",
       options: [
-        { value: "same" as const, label: "Same host" },
         { value: "different" as const, label: "Different host" },
+        { value: "same" as const, label: "Same host" },
       ],
     });
 
@@ -264,7 +270,7 @@ async function main() {
 
     if (copyTarget === "different") {
       const targetConnectionString =
-        await pickConnectionString("Target host");
+        await pickConnectionString("Target host", sourceConnectionString);
 
       const targetSpinner = p.spinner();
       targetSpinner.start("Connecting to target...");
@@ -287,8 +293,13 @@ async function main() {
     let targetDbName: string;
 
     if (targetDatabases.length > 0) {
+      const selectableTargetDatabases =
+        copyTarget === "same"
+          ? targetDatabases.filter((db) => db.name !== sourceDbName)
+          : targetDatabases;
+
       const targetDbOptions: { value: string; label: string; hint?: string }[] =
-        targetDatabases.map((db) => ({
+        selectableTargetDatabases.map((db) => ({
           value: db.name,
           label: db.name,
           hint: formatBytes(db.sizeOnDisk),
