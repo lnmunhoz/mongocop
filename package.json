@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "start": "tsx src/index.ts",
+    "test": "tsx scripts/config.test.ts",
     "build": "tsc && node scripts/postbuild.mjs",
     "prerelease": "node scripts/prerelease.mjs",
     "release": "release-it --ci"
