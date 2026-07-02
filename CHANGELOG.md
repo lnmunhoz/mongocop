@@ -1,5 +1,13 @@
 # Changelog
 
+# [0.5.0](https://github.com/lnmunhoz/mongocop/compare/v0.4.0...v0.5.0) (2026-07-02)
+
+
+### Features
+
+* add saved copy templates ([e288044](https://github.com/lnmunhoz/mongocop/commit/e2880447ff9609f350a28ef5fb65c9b2c268774f))
+* update README with new logo and centered title ([d38cea5](https://github.com/lnmunhoz/mongocop/commit/d38cea5a6bbe66630a2e7bb993185950b9bf19ad))
+
 # [0.4.0](https://github.com/lnmunhoz/mongocop/compare/v0.3.0...v0.4.0) (2026-05-01)
 
 
