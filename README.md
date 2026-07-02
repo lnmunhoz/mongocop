@@ -31,6 +31,7 @@ Features:
 - Copy on the same host or across different hosts
 - Pick an existing target database or create a new one
 - Save, rename, and delete named connections
+- Save, rename, delete, and rerun copy templates
 - Stores saved connection secrets in macOS Keychain
 - Keeps only non-secret connection metadata in `~/.mongocop/config.json`
 - Supports `MONGODB_URL` environment variable (takes priority over saved hosts)

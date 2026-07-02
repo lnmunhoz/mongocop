@@ -13,8 +13,18 @@ export interface SavedHost {
   credential?: CredentialRef;
 }
 
+export interface SavedCopyTemplate {
+  name: string;
+  sourceHost: string;
+  targetHost: string;
+  sourceDatabase: string;
+  targetDatabase: string;
+  collections?: string[];
+}
+
 interface Config {
   hosts: SavedHost[];
+  templates: SavedCopyTemplate[];
 }
 
 async function ensureConfigDir(): Promise<void> {
@@ -72,6 +82,42 @@ function normalizeHost(value: unknown): SavedHost | null {
   return null;
 }
 
+function normalizeTemplate(value: unknown): SavedCopyTemplate | null {
+  if (!value || typeof value !== "object") return null;
+
+  const candidate = value as Partial<SavedCopyTemplate>;
+  if (
+    typeof candidate.name !== "string" ||
+    candidate.name.trim() === "" ||
+    typeof candidate.sourceHost !== "string" ||
+    candidate.sourceHost.trim() === "" ||
+    typeof candidate.targetHost !== "string" ||
+    candidate.targetHost.trim() === "" ||
+    typeof candidate.sourceDatabase !== "string" ||
+    candidate.sourceDatabase.trim() === "" ||
+    typeof candidate.targetDatabase !== "string" ||
+    candidate.targetDatabase.trim() === ""
+  ) {
+    return null;
+  }
+
+  const collections = Array.isArray(candidate.collections)
+    ? candidate.collections.filter(
+        (collection): collection is string =>
+          typeof collection === "string" && collection.trim() !== ""
+      )
+    : [];
+
+  return {
+    name: candidate.name,
+    sourceHost: candidate.sourceHost,
+    targetHost: candidate.targetHost,
+    sourceDatabase: candidate.sourceDatabase,
+    targetDatabase: candidate.targetDatabase,
+    ...(collections.length > 0 ? { collections } : {}),
+  };
+}
+
 function serializeHost(host: SavedHost): SavedHost | null {
   if (isCredentialHost(host)) {
     return {
@@ -99,6 +145,12 @@ function serializeHost(host: SavedHost): SavedHost | null {
   return null;
 }
 
+function serializeTemplate(
+  template: SavedCopyTemplate
+): SavedCopyTemplate | null {
+  return normalizeTemplate(template);
+}
+
 export function isCredentialHost(
   host: SavedHost
 ): host is SavedHost & { kind: "credential"; credential: CredentialRef } {
@@ -121,16 +173,22 @@ export async function loadConfig(): Promise<Config> {
   try {
     const raw = await readFile(CONFIG_FILE, "utf-8");
     const parsed = JSON.parse(raw) as Partial<Config>;
-    if (!Array.isArray(parsed.hosts)) {
-      return { hosts: getDefaultHosts() };
-    }
     return {
-      hosts: parsed.hosts
-        .map((host) => normalizeHost(host))
-        .filter((host): host is SavedHost => Boolean(host)),
+      hosts: Array.isArray(parsed.hosts)
+        ? parsed.hosts
+            .map((host) => normalizeHost(host))
+            .filter((host): host is SavedHost => Boolean(host))
+        : getDefaultHosts(),
+      templates: Array.isArray(parsed.templates)
+        ? parsed.templates
+            .map((template) => normalizeTemplate(template))
+            .filter(
+              (template): template is SavedCopyTemplate => Boolean(template)
+            )
+        : [],
     };
   } catch {
-    return { hosts: getDefaultHosts() };
+    return { hosts: getDefaultHosts(), templates: [] };
   }
 }
 
@@ -143,6 +201,11 @@ async function saveConfig(config: Config): Promise<void> {
         hosts: config.hosts
           .map((host) => serializeHost(host))
           .filter((host): host is SavedHost => Boolean(host)),
+        templates: config.templates
+          .map((template) => serializeTemplate(template))
+          .filter(
+            (template): template is SavedCopyTemplate => Boolean(template)
+          ),
       },
       null,
       2
@@ -160,6 +223,37 @@ export async function addHost(host: SavedHost): Promise<void> {
     config.hosts.push(host);
   }
   await saveConfig(config);
+}
+
+export async function addTemplate(
+  template: SavedCopyTemplate
+): Promise<void> {
+  const config = await loadConfig();
+  const existing = config.templates.findIndex((t) => t.name === template.name);
+  if (existing !== -1) {
+    config.templates[existing] = template;
+  } else {
+    config.templates.push(template);
+  }
+  await saveConfig(config);
+}
+
+export async function removeTemplate(name: string): Promise<void> {
+  const config = await loadConfig();
+  config.templates = config.templates.filter((t) => t.name !== name);
+  await saveConfig(config);
+}
+
+export async function renameTemplate(
+  oldName: string,
+  newName: string
+): Promise<void> {
+  const config = await loadConfig();
+  const template = config.templates.find((t) => t.name === oldName);
+  if (template) {
+    template.name = newName;
+    await saveConfig(config);
+  }
 }
 
 export async function removeHost(name: string): Promise<void> {
